@@ -211,8 +211,8 @@ def main():
     # Display header with user info
     col1, col2 = st.columns([4, 1])
     with col1:
-        st.title("📄 CV Company Template Converter")
-        st.markdown("Effortlessly reformat candidate CVs into your company's standard template.")
+        st.title("📄 Formation Bio Template Converter")
+        st.markdown("Effortlessly reformat your CV into Formation Bio's standard template.")
     with col2:
         st.markdown(f"**Logged in as:**  \n{st.session_state.user_email}")
         if st.button("🚪 Logout"):
