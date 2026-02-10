@@ -281,16 +281,34 @@ def main():
     check_session_timeout()
     
     # Display header
-    col1, col2 = st.columns([4, 1])
+    col1, col2 = st.columns([5, 1])
     with col1:
         st.title("📄 Formation Bio CV Formatter")
-        st.markdown("Upload your CV/Resume to automatically reformat it into the standard Formation Bio template. Note: The tool can make errors, always review the output and make any necessary edits before finalizing your document as PDF. Once complete, to upload your final version to ComplianceWire.")
+        st.markdown("### Convert candidate CVs to Formation Bio's standard template")
     with col2:
-        st.markdown(f"**Logged in as:**  \n{st.session_state.user_email}")
-        if st.button("🚪 Logout"):
+        if st.button("🚪 Logout", use_container_width=True):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
+        st.caption(f"👤 {st.session_state.user_email.split('@')[0]}")
+    
+    st.markdown("---")
+    
+    # Instructions
+    with st.expander("ℹ️ How to use this tool", expanded=False):
+        st.markdown("""
+        **Step-by-step guide:**
+        
+        1. **Upload** one or more candidate CV files (PDF, DOCX, or TXT)
+        2. **Review** extracted candidate names and correct if needed
+        3. **Add Formation Bio role** if the candidate doesn't have it on their CV
+        4. **Add education** if missing from the CV
+        5. **Download** the formatted CVs in Formation Bio template
+        
+        **Important:** Always review the output before finalizing. The tool uses AI and may make errors.
+        """)
+    
+    st.markdown("")
 
     # Initialize session state
     if 'converted_cvs' not in st.session_state:
@@ -325,13 +343,22 @@ def main():
         st.stop()
     
     # File upload - only CVs
-    cvs = st.file_uploader("Upload Candidate CV(s)", type=["pdf", "docx", "txt"],
-                          accept_multiple_files=True)
+    st.markdown("### 📤 Step 1: Upload Candidate CVs")
+    cvs = st.file_uploader(
+        "Select one or more CV files",
+        type=["pdf", "docx", "txt"],
+        accept_multiple_files=True,
+        help="Upload PDF, DOCX, or TXT files. You can select multiple files at once."
+    )
+    
     if cvs:
-        st.info(f"📁 {len(cvs)} CV(s) uploaded")
+        st.success(f"✅ {len(cvs)} file(s) uploaded: {', '.join([cv.name for cv in cvs])}")
+    else:
+        st.info("👆 Upload CV files to begin")
 
     # Process button
-    if st.button("🔄 Process CVs", type="primary", disabled=not(api_key and cvs)):
+    st.markdown("")
+    if st.button("🔄 Process CVs", type="primary", disabled=not(api_key and cvs), use_container_width=True):
         
         extractor = CVExtractor(api_key)
         
@@ -365,6 +392,9 @@ def main():
                         candidate_name = re.sub(r'\b' + word + r'\b', '', candidate_name, flags=re.IGNORECASE)
                     candidate_name = ' '.join(candidate_name.split()).strip()
                     data["candidate_name"] = candidate_name
+                
+                # Store extracted name for review
+                data["extracted_name"] = candidate_name
 
                 has_fb = has_formation_bio_experience(data)
                 has_edu = has_education(data)
@@ -393,10 +423,55 @@ def main():
         st.session_state.processing_stage = 'check_requirements'
         st.rerun()
 
-    # Check Requirements Stage
+    # Check Requirements Stage - Name Review
     if st.session_state.processing_stage == 'check_requirements':
         
-        # Formation Bio Check
+        # Name Review/Correction
+        st.markdown("---")
+        st.markdown("### ✏️ Step 2: Review Candidate Names")
+        st.markdown("Verify the AI extracted the correct names. Edit any that are wrong:")
+        
+        st.markdown("")
+        
+        name_changes = {}
+        for idx, cv_data in enumerate(st.session_state.extracted_data):
+            with st.container():
+                st.markdown(f"**Candidate #{idx + 1}**")
+                col1, col2 = st.columns([3, 2])
+                with col1:
+                    corrected_name = st.text_input(
+                        "Full Name",
+                        value=cv_data["name"],
+                        key=f"name_correction_{idx}",
+                        label_visibility="collapsed"
+                    )
+                    if corrected_name != cv_data["name"]:
+                        name_changes[idx] = corrected_name
+                with col2:
+                    st.text_input(
+                        "Original extraction",
+                        value=cv_data.get('data', {}).get('extracted_name', cv_data['name']),
+                        disabled=True,
+                        label_visibility="collapsed"
+                    )
+                st.markdown("")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if name_changes and st.button("💾 Save Name Changes", use_container_width=True):
+                for idx, new_name in name_changes.items():
+                    st.session_state.extracted_data[idx]["name"] = new_name
+                    st.session_state.extracted_data[idx]["data"]["candidate_name"] = new_name
+                st.success("✅ Names updated!")
+                st.rerun()
+        
+        with col2:
+            if st.button("Continue to Next Step →", type="primary", use_container_width=True):
+                st.session_state.processing_stage = 'check_formation_bio'
+                st.rerun()
+    
+    # Formation Bio Check Stage
+    if st.session_state.processing_stage == 'check_formation_bio':
         if st.session_state.pending_formation_bio:
             st.markdown("---")
             st.markdown("## 🔍 Formation Bio Experience Check")
@@ -417,8 +492,38 @@ def main():
                     
                     st.markdown("---")
         
-        # Education Check
+        # Education Check (after Formation Bio is complete)
         if not st.session_state.pending_formation_bio and st.session_state.pending_education:
+            st.markdown("---")
+            st.markdown("### 🎓 Step 4: Add Education")
+            st.markdown("The following candidates are missing education information:")
+            st.markdown("")
+            
+            for idx in st.session_state.pending_education[:]:
+                cv_data = st.session_state.extracted_data[idx]
+                
+                with st.container():
+                    edu_data = show_education_form(cv_data["name"], idx)
+                    
+                    if edu_data:
+                        updated_data = add_education(cv_data["data"], edu_data)
+                        st.session_state.extracted_data[idx]["data"] = updated_data
+                        st.session_state.extracted_data[idx]["has_education"] = True
+                        st.session_state.pending_education.remove(idx)
+                        st.success(f"✅ Education added for {cv_data['name']}")
+                        st.rerun()
+                    
+                    st.markdown("---")
+        
+        # All requirements met
+        if not st.session_state.pending_formation_bio and not st.session_state.pending_education:
+            st.markdown("---")
+            st.success("✅ All information collected!")
+            st.markdown("### 📄 Step 5: Generate Formatted CVs")
+            st.markdown("Ready to create the formatted CVs with Formation Bio template.")
+            st.markdown("")
+            
+            if st.button("🚀 Generate CVs", type="primary", use_container_width=True):
             st.markdown("---")
             st.markdown("## 🎓 Education Check")
             
@@ -482,11 +587,14 @@ def main():
     # Display results
     if st.session_state.conversion_done and st.session_state.converted_cvs:
         st.markdown("---")
-        st.markdown("### 📥 Download Converted CVs")
+        st.markdown("### ✅ Success! Your CVs are Ready")
+        st.markdown(f"**{len(st.session_state.converted_cvs)} CV(s) formatted and ready to download**")
+        st.markdown("")
         
         # Download all as zip
         if len(st.session_state.converted_cvs) > 1:
-            if st.button("📦 Download All as ZIP", type="secondary"):
+            st.markdown("**Download all CVs at once:**")
+            if st.button("📦 Download All as ZIP", type="secondary", use_container_width=True):
                 import zipfile
                 zip_buffer = BytesIO()
                 
@@ -497,18 +605,21 @@ def main():
                 
                 zip_buffer.seek(0)
                 st.download_button(
-                    "⬇️ Download ZIP Archive",
+                    "⬇️ Click Here to Download ZIP",
                     zip_buffer.getvalue(),
-                    file_name="converted_cvs.zip",
-                    mime="application/zip"
+                    file_name="formation_bio_cvs.zip",
+                    mime="application/zip",
+                    use_container_width=True
                 )
+            st.markdown("---")
         
         # Individual CV downloads
+        st.markdown("**Download individual CVs:**")
         for idx, conv in enumerate(st.session_state.converted_cvs):
-            col1, col2 = st.columns([3, 1])
+            col1, col2 = st.columns([4, 1])
             
             with col1:
-                st.markdown(f"**{conv['name']}**")
+                st.markdown(f"**{idx + 1}. {conv['name']}**")
             
             with col2:
                 fname = safe_filename(f"{conv['name']}_Formatted.docx")
@@ -517,8 +628,12 @@ def main():
                     conv['buffer'].getvalue(),
                     file_name=fname,
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    key=f"download_{idx}"
+                    key=f"download_{idx}",
+                    use_container_width=True
                 )
+        
+        st.markdown("")
+        st.info("💡 **Next Steps:** Review the downloaded CVs and upload final versions to ComplianceWire.")
 
 if __name__ == "__main__":
     main()
