@@ -27,7 +27,7 @@ st.set_page_config(
 # ────────────────────────────────────────────────────────────────
 #  Configuration
 # ────────────────────────────────────────────────────────────────
-DEFAULT_API_KEY = ""  # Add hardcoded API Key here if you don't want use secrets.toml file
+DEFAULT_API_KEY = ""
 
 # ────────────────────────────────────────────────────────────────
 #  Helper Functions
@@ -41,22 +41,41 @@ def has_formation_bio_experience(data: Dict[str, Any]) -> bool:
             return True
     return False
 
+def has_education(data: Dict[str, Any]) -> bool:
+    """Check if candidate has education entries."""
+    education = data.get("education", [])
+    return len(education) > 0 and any(edu.get("degree") or edu.get("institution") for edu in education)
+
 def add_formation_bio_experience(data: Dict[str, Any], fb_data: Dict[str, Any]) -> Dict[str, Any]:
     """Add Formation Bio experience as the first entry."""
+    # Parse responsibilities from text area (split by newlines, filter empty)
+    responsibilities = [r.strip() for r in fb_data["responsibilities"].split('\n') if r.strip()]
+    
     new_experience = {
         "company": "Formation Bio",
         "location": fb_data["location"],
         "role": fb_data["job_title"],
-        "duration": fb_data["dates"],
-        "responsibilities": fb_data["responsibilities"]
+        "duration": f"{fb_data['start_date']} - Present",
+        "responsibilities": responsibilities
     }
     
-    # Insert at the beginning
     data["experiences"].insert(0, new_experience)
+    data["position"] = fb_data["job_title"]
     
-    # Update position if this is their current role
-    if "Present" in fb_data["dates"]:
-        data["position"] = fb_data["job_title"]
+    return data
+
+def add_education(data: Dict[str, Any], edu_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Add education entry."""
+    new_education = {
+        "institution": edu_data["institution"],
+        "duration": edu_data.get("duration", ""),
+        "degree": edu_data["degree"]
+    }
+    
+    if "education" not in data:
+        data["education"] = []
+    
+    data["education"].append(new_education)
     
     return data
 
@@ -65,8 +84,6 @@ def add_formation_bio_experience(data: Dict[str, Any], fb_data: Dict[str, Any]) 
 # ────────────────────────────────────────────────────────────────
 def check_company_email():
     """Verify user has company email domain and password."""
-    
-    # Get company domain and password from secrets
     try:
         COMPANY_DOMAIN = st.secrets["company_domain"]
         APP_PASSWORD = st.secrets["app_password"]
@@ -74,13 +91,11 @@ def check_company_email():
         st.error("⚠️ Company domain or password not configured. Contact administrator.")
         st.stop()
     
-    # Initialize authentication state
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     
-    # If not authenticated, show login form
     if not st.session_state.authenticated:
-        st.markdown("## 🔐 CV Converter Login Page")
+        st.markdown("## 🔐 Formation Bio CV Converter Login Page")
         st.markdown("Please authenticate with your company email and password to access the CV converter.")
         
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -113,7 +128,7 @@ def check_session_timeout():
     """Check if session has timed out (30 minutes)."""
     if "login_time" in st.session_state:
         elapsed = datetime.now() - st.session_state.login_time
-        if elapsed.total_seconds() > 1800:  # 30 minutes
+        if elapsed.total_seconds() > 1800:
             st.warning("⏱️ Session expired. Please login again.")
             for key in ["authenticated", "user_email", "login_time"]:
                 if key in st.session_state:
@@ -137,16 +152,21 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
         
         with col1:
             job_title = st.text_input(
-                "Job Title and Department *",
-                placeholder="e.g., Validation Manager, QA",
+                "Job Title *",
+                placeholder="e.g., Validation Manager",
                 key=f"job_title_{cv_index}"
             )
             
-            dates = st.text_input(
-                "Dates *",
-                placeholder="MMM YYYY - Present (e.g., JAN 2024 - Present)",
-                value="",
-                key=f"dates_{cv_index}"
+            department = st.text_input(
+                "Department *",
+                placeholder="e.g., QA",
+                key=f"department_{cv_index}"
+            )
+            
+            start_date = st.text_input(
+                "Start Date *",
+                placeholder="MMM YYYY (e.g., JAN 2024)",
+                key=f"start_date_{cv_index}"
             )
         
         with col2:
@@ -156,13 +176,57 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
                 key=f"location_{cv_index}"
             )
         
-        st.markdown("**Responsibilities (3-5 bullet points in present tense):**")
+        st.markdown("---")
         
-        resp1 = st.text_area("Responsibility 1 *", key=f"resp1_{cv_index}", height=70)
-        resp2 = st.text_area("Responsibility 2 *", key=f"resp2_{cv_index}", height=70)
-        resp3 = st.text_area("Responsibility 3 *", key=f"resp3_{cv_index}", height=70)
-        resp4 = st.text_area("Responsibility 4 (Optional)", key=f"resp4_{cv_index}", height=70)
-        resp5 = st.text_area("Responsibility 5 (Optional)", key=f"resp5_{cv_index}", height=70)
+        # Option to paste JD
+        st.markdown("**Job Description (Optional - paste to auto-extract responsibilities):**")
+        jd_text = st.text_area(
+            "Paste Job Description",
+            height=150,
+            placeholder="Paste the full job description here...",
+            key=f"jd_text_{cv_index}"
+        )
+        
+        # Extract button
+        default_resp = ""
+        if jd_text:
+            if st.button("🔍 Extract Responsibilities from JD", key=f"extract_{cv_index}"):
+                with st.spinner("Extracting responsibilities..."):
+                    # Simple extraction - look for bullet points or numbered lists
+                    lines = jd_text.split('\n')
+                    extracted = []
+                    
+                    for line in lines:
+                        line = line.strip()
+                        # Match lines starting with bullets, numbers, or dashes
+                        if line and (line.startswith('•') or line.startswith('-') or 
+                                    line.startswith('*') or re.match(r'^\d+\.', line)):
+                            # Clean up the line
+                            clean_line = re.sub(r'^[•\-*\d\.]+\s*', '', line).strip()
+                            if len(clean_line) > 10:  # Filter out very short lines
+                                extracted.append(clean_line)
+                    
+                    if extracted:
+                        st.success(f"✅ Extracted {len(extracted[:10])} responsibilities")
+                        default_resp = '\n'.join([f"• {r}" for r in extracted[:10]])
+                        st.session_state[f"extracted_resp_{cv_index}"] = default_resp
+                    else:
+                        st.warning("Could not extract responsibilities. Please enter manually below.")
+        
+        # Use extracted responsibilities if available
+        if f"extracted_resp_{cv_index}" in st.session_state:
+            default_resp = st.session_state[f"extracted_resp_{cv_index}"]
+        
+        st.markdown("**Responsibilities (in present tense):**")
+        st.caption("Enter each responsibility on a new line. Start with '•' or '-' for bullet points.")
+        
+        responsibilities = st.text_area(
+            "Responsibilities *",
+            value=default_resp,
+            height=200,
+            placeholder="• Lead validation efforts for GxP systems\n• Develop and maintain validation documentation\n• Coordinate with cross-functional teams",
+            key=f"responsibilities_{cv_index}"
+        )
         
         submitted = st.form_submit_button("✅ Add Formation Bio Experience", use_container_width=True)
         
@@ -171,9 +235,11 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
             errors = []
             if not job_title.strip():
                 errors.append("Job Title is required")
-            if not dates.strip():
-                errors.append("Dates are required")
-            if not resp1.strip() or not resp2.strip() or not resp3.strip():
+            if not department.strip():
+                errors.append("Department is required")
+            if not start_date.strip():
+                errors.append("Start Date is required")
+            if not responsibilities.strip() or len([r for r in responsibilities.split('\n') if r.strip()]) < 3:
                 errors.append("At least 3 responsibilities are required")
             
             if errors:
@@ -181,18 +247,67 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
                     st.error(f"❌ {error}")
                 return None
             
-            # Collect responsibilities
-            responsibilities = [resp1.strip(), resp2.strip(), resp3.strip()]
-            if resp4.strip():
-                responsibilities.append(resp4.strip())
-            if resp5.strip():
-                responsibilities.append(resp5.strip())
+            # Format start date to match template style (MMM YYYY)
+            formatted_date = format_date(start_date.strip())
             
             return {
-                "job_title": job_title.strip(),
-                "dates": dates.strip(),
+                "job_title": f"{job_title.strip()}, {department.strip()}",
+                "start_date": formatted_date,
                 "location": location.strip(),
-                "responsibilities": responsibilities
+                "responsibilities": responsibilities.strip()
+            }
+    
+    return None
+
+# ────────────────────────────────────────────────────────────────
+#  Education Input Form
+# ────────────────────────────────────────────────────────────────
+def show_education_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
+    """Show form to collect education details."""
+    
+    st.warning(f"⚠️ **{cv_name}**: No education found in resume.")
+    st.markdown("### Add Education")
+    st.markdown("Please provide the candidate's education details:")
+    
+    form_key = f"edu_form_{cv_index}"
+    
+    with st.form(key=form_key):
+        institution = st.text_input(
+            "Institution *",
+            placeholder="e.g., University of Massachusetts Dartmouth",
+            key=f"institution_{cv_index}"
+        )
+        
+        degree = st.text_input(
+            "Degree *",
+            placeholder="e.g., Bachelor of Science: Marine Concentration",
+            key=f"degree_{cv_index}"
+        )
+        
+        duration = st.text_input(
+            "Duration (Optional)",
+            placeholder="e.g., 2015 - 2019 or SEP 2015 - MAY 2019",
+            key=f"duration_{cv_index}"
+        )
+        
+        submitted = st.form_submit_button("✅ Add Education", use_container_width=True)
+        
+        if submitted:
+            errors = []
+            if not institution.strip():
+                errors.append("Institution is required")
+            if not degree.strip():
+                errors.append("Degree is required")
+            
+            if errors:
+                for error in errors:
+                    st.error(f"❌ {error}")
+                return None
+            
+            return {
+                "institution": institution.strip(),
+                "degree": degree.strip(),
+                "duration": format_duration(duration.strip()) if duration.strip() else ""
             }
     
     return None
@@ -201,22 +316,19 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
 #  Main Application Function
 # ────────────────────────────────────────────────────────────────
 def main():
-    # Check authentication first
     if not check_company_email():
         return
     
-    # Check session timeout
     check_session_timeout()
     
-    # Display header with user info
+    # Display header
     col1, col2 = st.columns([4, 1])
     with col1:
-        st.title("📄 Formation Bio Template Converter")
-        st.markdown("Effortlessly reformat your CV into Formation Bio's standard template.")
+        st.title("📄 Formation Bio CV Formatter")
+        st.markdown("Upload your CV/Resume to automatically reformat it into the standard Formation Bio template. Note: The tool can make errors, always review the output and make any necessary edits before finalizing your document as PDF. Once complete, to upload your final version to ComplianceWire.")
     with col2:
         st.markdown(f"**Logged in as:**  \n{st.session_state.user_email}")
         if st.button("🚪 Logout"):
-            # Clear session
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             st.rerun()
@@ -230,10 +342,12 @@ def main():
         st.session_state.extracted_data = []
     if 'pending_formation_bio' not in st.session_state:
         st.session_state.pending_formation_bio = []
+    if 'pending_education' not in st.session_state:
+        st.session_state.pending_education = []
     if 'processing_stage' not in st.session_state:
-        st.session_state.processing_stage = 'upload'  # upload, check_formation, convert
+        st.session_state.processing_stage = 'upload'
 
-    # Get API key from secrets
+    # Get API key
     try:
         api_key = st.secrets["OPENAI_API_KEY"]
     except:
@@ -251,26 +365,25 @@ def main():
         st.info("Please add 'company_template.docx' to the project folder.")
         st.stop()
     
-    # Show template loaded status
     st.success(f"✅ Company template loaded: {TEMPLATE_PATH}")
     
-    # File upload - only CVs now
+    # File upload - only CVs
     cvs = st.file_uploader("Upload Candidate CV(s)", type=["pdf", "docx", "txt"],
                           accept_multiple_files=True)
     if cvs:
         st.info(f"📁 {len(cvs)} CV(s) uploaded")
 
-    # Process button - Initial extraction
+    # Process button
     if st.button("🔄 Process CVs", type="primary", disabled=not(api_key and cvs)):
         
         extractor = CVExtractor(api_key)
         
-        # Load template from file
         with open(TEMPLATE_PATH, 'rb') as f:
             st.session_state.tpl_bytes = f.read()
         
         st.session_state.extracted_data = []
         st.session_state.pending_formation_bio = []
+        st.session_state.pending_education = []
 
         prog = st.progress(0.0)
         status = st.empty()
@@ -279,17 +392,14 @@ def main():
             status.text(f"Extracting data from {cv.name}...")
             
             try:
-                # Extract text
                 text = extract_text(cv)
                 if not text:
                     st.warning(f"⚠️ Could not extract text from {cv.name}")
                     continue
 
-                # Extract structured data
                 with st.spinner(f"Analyzing {cv.name}..."):
                     data = extractor.extract(text)
 
-                # Use filename if name extraction failed
                 candidate_name = data.get("candidate_name", "")
                 if not candidate_name or candidate_name == "Candidate Name Not Provided":
                     candidate_name = cv.name.replace('.pdf', '').replace('.docx', '').replace('.txt', '').replace('_', ' ').replace('-', ' ')
@@ -299,18 +409,21 @@ def main():
                     candidate_name = ' '.join(candidate_name.split()).strip()
                     data["candidate_name"] = candidate_name
 
-                # Check for Formation Bio experience
                 has_fb = has_formation_bio_experience(data)
+                has_edu = has_education(data)
                 
                 st.session_state.extracted_data.append({
                     "name": candidate_name,
                     "data": data,
                     "has_formation_bio": has_fb,
+                    "has_education": has_edu,
                     "index": i
                 })
                 
                 if not has_fb:
                     st.session_state.pending_formation_bio.append(i)
+                if not has_edu:
+                    st.session_state.pending_education.append(i)
 
                 prog.progress((i + 1) / len(cvs))
                 
@@ -320,82 +433,101 @@ def main():
         status.empty()
         prog.empty()
         
-        # Move to Formation Bio check stage
-        st.session_state.processing_stage = 'check_formation'
+        st.session_state.processing_stage = 'check_requirements'
         st.rerun()
 
-    # Formation Bio Check Stage
-    if st.session_state.processing_stage == 'check_formation' and st.session_state.pending_formation_bio:
-        st.markdown("---")
-        st.markdown("## 🔍 Formation Bio Experience Check")
+    # Check Requirements Stage
+    if st.session_state.processing_stage == 'check_requirements':
         
-        # Show forms for CVs missing Formation Bio
-        for idx in st.session_state.pending_formation_bio:
-            cv_data = st.session_state.extracted_data[idx]
+        # Formation Bio Check
+        if st.session_state.pending_formation_bio:
+            st.markdown("---")
+            st.markdown("## 🔍 Formation Bio Experience Check")
             
-            with st.container():
-                fb_data = show_formation_bio_form(cv_data["name"], idx)
+            for idx in st.session_state.pending_formation_bio[:]:
+                cv_data = st.session_state.extracted_data[idx]
                 
-                if fb_data:
-                    # Add Formation Bio experience to data
-                    updated_data = add_formation_bio_experience(cv_data["data"], fb_data)
-                    st.session_state.extracted_data[idx]["data"] = updated_data
-                    st.session_state.extracted_data[idx]["has_formation_bio"] = True
-                    st.session_state.pending_formation_bio.remove(idx)
-                    st.success(f"✅ Formation Bio experience added for {cv_data['name']}")
-                    st.rerun()
-                
-                st.markdown("---")
-        
-    # Convert Stage - Show convert button only when all Formation Bio data is collected
-    if st.session_state.processing_stage == 'check_formation' and not st.session_state.pending_formation_bio:
-        st.success("✅ All Formation Bio information collected!")
-        
-        if st.button("📄 Generate Final CVs", type="primary", use_container_width=True):
-            converted = []
-            prog = st.progress(0.0)
-            status = st.empty()
-            
-            for i, cv_data in enumerate(st.session_state.extracted_data):
-                status.text(f"Generating CV for {cv_data['name']}...")
-                
-                try:
-                    # Fill template
-                    filled = fill_template(
-                        Document(BytesIO(st.session_state.tpl_bytes)), 
-                        cv_data["data"]
-                    )
-
-                    # Save to buffer
-                    buf = BytesIO()
-                    filled.save(buf)
-                    buf.seek(0)
-
-                    converted.append({
-                        "name": cv_data["name"],
-                        "buffer": buf,
-                        "data": cv_data["data"]
-                    })
-
-                    prog.progress((i + 1) / len(st.session_state.extracted_data))
+                with st.container():
+                    fb_data = show_formation_bio_form(cv_data["name"], idx)
                     
-                except Exception as e:
-                    st.error(f"❌ Error generating CV for {cv_data['name']}: {str(e)}")
-
-            status.empty()
-            prog.empty()
+                    if fb_data:
+                        updated_data = add_formation_bio_experience(cv_data["data"], fb_data)
+                        st.session_state.extracted_data[idx]["data"] = updated_data
+                        st.session_state.extracted_data[idx]["has_formation_bio"] = True
+                        st.session_state.pending_formation_bio.remove(idx)
+                        st.success(f"✅ Formation Bio experience added for {cv_data['name']}")
+                        st.rerun()
+                    
+                    st.markdown("---")
+        
+        # Education Check
+        if not st.session_state.pending_formation_bio and st.session_state.pending_education:
+            st.markdown("---")
+            st.markdown("## 🎓 Education Check")
             
-            st.session_state.converted_cvs = converted
-            st.session_state.conversion_done = True
-            st.session_state.processing_stage = 'complete'
-            st.rerun()
+            for idx in st.session_state.pending_education[:]:
+                cv_data = st.session_state.extracted_data[idx]
+                
+                with st.container():
+                    edu_data = show_education_form(cv_data["name"], idx)
+                    
+                    if edu_data:
+                        updated_data = add_education(cv_data["data"], edu_data)
+                        st.session_state.extracted_data[idx]["data"] = updated_data
+                        st.session_state.extracted_data[idx]["has_education"] = True
+                        st.session_state.pending_education.remove(idx)
+                        st.success(f"✅ Education added for {cv_data['name']}")
+                        st.rerun()
+                    
+                    st.markdown("---")
+        
+        # All requirements met
+        if not st.session_state.pending_formation_bio and not st.session_state.pending_education:
+            st.success("✅ All required information collected!")
+            
+            if st.button("📄 Generate Final CVs", type="primary", use_container_width=True):
+                converted = []
+                prog = st.progress(0.0)
+                status = st.empty()
+                
+                for i, cv_data in enumerate(st.session_state.extracted_data):
+                    status.text(f"Generating CV for {cv_data['name']}...")
+                    
+                    try:
+                        filled = fill_template(
+                            Document(BytesIO(st.session_state.tpl_bytes)), 
+                            cv_data["data"]
+                        )
+
+                        buf = BytesIO()
+                        filled.save(buf)
+                        buf.seek(0)
+
+                        converted.append({
+                            "name": cv_data["name"],
+                            "buffer": buf,
+                            "data": cv_data["data"]
+                        })
+
+                        prog.progress((i + 1) / len(st.session_state.extracted_data))
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error generating CV for {cv_data['name']}: {str(e)}")
+
+                status.empty()
+                prog.empty()
+                
+                st.session_state.converted_cvs = converted
+                st.session_state.conversion_done = True
+                st.session_state.processing_stage = 'complete'
+                st.rerun()
 
     # Display results
     if st.session_state.conversion_done and st.session_state.converted_cvs:
         st.markdown("---")
         st.markdown("### 📥 Download Converted CVs")
         
-        # Option to download all as zip
+        # Download all as zip
         if len(st.session_state.converted_cvs) > 1:
             if st.button("📦 Download All as ZIP", type="secondary"):
                 import zipfile
@@ -417,26 +549,11 @@ def main():
         # Individual CV downloads
         for idx, conv in enumerate(st.session_state.converted_cvs):
             with st.expander(f"📄 {conv['name']}", expanded=True):
-                # Show extracted data summary
                 data = conv['data']
-                col1, col2 = st.columns(2)
                 
-                with col1:
-                    st.markdown("**Extracted Information:**")
-                    st.write(f"- Position: {data.get('position', 'N/A')}")
-                    st.write(f"- Experience: {data.get('total_experience_years', 'N/A')} years")
-                    st.write(f"- Email: {data.get('email', 'N/A')}")
-                    st.write(f"- Phone: {data.get('phone', 'N/A')}")
+                st.markdown(f"**Current Position:** {data.get('position', 'N/A')}")
+                st.markdown(f"**Total Experience:** {data.get('total_experience_years', 'N/A')} years")
                 
-                with col2:
-                    st.markdown("**Experience Summary:**")
-                    actual_experiences = [exp for exp in data.get('experiences', []) 
-                                        if exp.get('company') and exp.get('company') != 'N/A']
-                    st.write(f"Total experiences: {len(actual_experiences)}")
-                    for exp_idx, exp in enumerate(actual_experiences[:3]):
-                        st.write(f"{exp_idx+1}. {exp['company']} - {exp.get('role', '')}")
-                
-                # Download button
                 fname = safe_filename(f"{conv['name']}_Formatted.docx")
                 st.download_button(
                     f"⬇️ Download {fname}",
