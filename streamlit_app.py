@@ -95,7 +95,7 @@ def check_company_email():
         st.session_state.authenticated = False
     
     if not st.session_state.authenticated:
-        st.markdown("## 🔐 Formation Bio CV Converter Login Page")
+        st.markdown("## 🔐 CV Converter Login Page")
         st.markdown("Please authenticate with your company email and password to access the CV converter.")
         
         col1, col2, col3 = st.columns([1, 2, 1])
@@ -177,46 +177,6 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
             )
         
         st.markdown("---")
-        
-        # Option to paste JD
-        st.markdown("**Job Description (Optional - paste to auto-extract responsibilities):**")
-        jd_text = st.text_area(
-            "Paste Job Description",
-            height=150,
-            placeholder="Paste the full job description here...",
-            key=f"jd_text_{cv_index}"
-        )
-        
-        # Extract button
-        default_resp = ""
-        if jd_text:
-            if st.button("🔍 Extract Responsibilities from JD", key=f"extract_{cv_index}"):
-                with st.spinner("Extracting responsibilities..."):
-                    # Simple extraction - look for bullet points or numbered lists
-                    lines = jd_text.split('\n')
-                    extracted = []
-                    
-                    for line in lines:
-                        line = line.strip()
-                        # Match lines starting with bullets, numbers, or dashes
-                        if line and (line.startswith('•') or line.startswith('-') or 
-                                    line.startswith('*') or re.match(r'^\d+\.', line)):
-                            # Clean up the line
-                            clean_line = re.sub(r'^[•\-*\d\.]+\s*', '', line).strip()
-                            if len(clean_line) > 10:  # Filter out very short lines
-                                extracted.append(clean_line)
-                    
-                    if extracted:
-                        st.success(f"✅ Extracted {len(extracted[:10])} responsibilities")
-                        default_resp = '\n'.join([f"• {r}" for r in extracted[:10]])
-                        st.session_state[f"extracted_resp_{cv_index}"] = default_resp
-                    else:
-                        st.warning("Could not extract responsibilities. Please enter manually below.")
-        
-        # Use extracted responsibilities if available
-        if f"extracted_resp_{cv_index}" in st.session_state:
-            default_resp = st.session_state[f"extracted_resp_{cv_index}"]
-        
         st.markdown("**Responsibilities (in present tense):**")
         st.caption("Enter each responsibility on a new line. Start with '•' or '-' for bullet points.")
         
@@ -364,8 +324,6 @@ def main():
         st.error(f"⚠️ Template file not found: {TEMPLATE_PATH}")
         st.info("Please add 'company_template.docx' to the project folder.")
         st.stop()
-    
-    st.success(f"✅ Company template loaded: {TEMPLATE_PATH}")
     
     # File upload - only CVs
     cvs = st.file_uploader("Upload Candidate CV(s)", type=["pdf", "docx", "txt"],
