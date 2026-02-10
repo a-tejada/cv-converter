@@ -48,7 +48,6 @@ def has_education(data: Dict[str, Any]) -> bool:
 
 def add_formation_bio_experience(data: Dict[str, Any], fb_data: Dict[str, Any]) -> Dict[str, Any]:
     """Add Formation Bio experience as the first entry."""
-    # Parse responsibilities from text area (split by newlines, filter empty)
     responsibilities = [r.strip() for r in fb_data["responsibilities"].split('\n') if r.strip()]
     
     new_experience = {
@@ -190,7 +189,6 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
         submitted = st.form_submit_button("✅ Add Formation Bio Experience", use_container_width=True)
         
         if submitted:
-            # Validation
             errors = []
             if not job_title.strip():
                 errors.append("Job Title is required")
@@ -206,7 +204,6 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
                     st.error(f"❌ {error}")
                 return None
             
-            # Format start date to match template style (MMM YYYY)
             formatted_date = format_date(start_date.strip())
             
             return {
@@ -393,7 +390,6 @@ def main():
                     candidate_name = ' '.join(candidate_name.split()).strip()
                     data["candidate_name"] = candidate_name
                 
-                # Store extracted name for review
                 data["extracted_name"] = candidate_name
 
                 has_fb = has_formation_bio_experience(data)
@@ -426,7 +422,6 @@ def main():
     # Check Requirements Stage - Name Review
     if st.session_state.processing_stage == 'check_requirements':
         
-        # Name Review/Correction
         st.markdown("---")
         st.markdown("### ✏️ Step 2: Review Candidate Names")
         st.markdown("Verify the AI extracted the correct names. Edit any that are wrong:")
@@ -472,9 +467,12 @@ def main():
     
     # Formation Bio Check Stage
     if st.session_state.processing_stage == 'check_formation_bio':
+        
         if st.session_state.pending_formation_bio:
             st.markdown("---")
-            st.markdown("## 🔍 Formation Bio Experience Check")
+            st.markdown("### 🏢 Step 3: Add Formation Bio Experience")
+            st.markdown("The following candidates are missing Formation Bio on their CV:")
+            st.markdown("")
             
             for idx in st.session_state.pending_formation_bio[:]:
                 cv_data = st.session_state.extracted_data[idx]
@@ -492,7 +490,6 @@ def main():
                     
                     st.markdown("---")
         
-        # Education Check (after Formation Bio is complete)
         if not st.session_state.pending_formation_bio and st.session_state.pending_education:
             st.markdown("---")
             st.markdown("### 🎓 Step 4: Add Education")
@@ -515,7 +512,6 @@ def main():
                     
                     st.markdown("---")
         
-        # All requirements met
         if not st.session_state.pending_formation_bio and not st.session_state.pending_education:
             st.markdown("---")
             st.success("✅ All information collected!")
@@ -524,30 +520,6 @@ def main():
             st.markdown("")
             
             if st.button("🚀 Generate CVs", type="primary", use_container_width=True):
-            st.markdown("---")
-            st.markdown("## 🎓 Education Check")
-            
-            for idx in st.session_state.pending_education[:]:
-                cv_data = st.session_state.extracted_data[idx]
-                
-                with st.container():
-                    edu_data = show_education_form(cv_data["name"], idx)
-                    
-                    if edu_data:
-                        updated_data = add_education(cv_data["data"], edu_data)
-                        st.session_state.extracted_data[idx]["data"] = updated_data
-                        st.session_state.extracted_data[idx]["has_education"] = True
-                        st.session_state.pending_education.remove(idx)
-                        st.success(f"✅ Education added for {cv_data['name']}")
-                        st.rerun()
-                    
-                    st.markdown("---")
-        
-        # All requirements met
-        if not st.session_state.pending_formation_bio and not st.session_state.pending_education:
-            st.success("✅ All required information collected!")
-            
-            if st.button("📄 Generate Final CVs", type="primary", use_container_width=True):
                 converted = []
                 prog = st.progress(0.0)
                 status = st.empty()
@@ -591,7 +563,6 @@ def main():
         st.markdown(f"**{len(st.session_state.converted_cvs)} CV(s) formatted and ready to download**")
         st.markdown("")
         
-        # Download all as zip
         if len(st.session_state.converted_cvs) > 1:
             st.markdown("**Download all CVs at once:**")
             if st.button("📦 Download All as ZIP", type="secondary", use_container_width=True):
@@ -613,7 +584,6 @@ def main():
                 )
             st.markdown("---")
         
-        # Individual CV downloads
         st.markdown("**Download individual CVs:**")
         for idx, conv in enumerate(st.session_state.converted_cvs):
             col1, col2 = st.columns([4, 1])
