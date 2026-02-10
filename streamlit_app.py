@@ -55,7 +55,7 @@ def add_formation_bio_experience(data: Dict[str, Any], fb_data: Dict[str, Any]) 
         "company": "Formation Bio",
         "location": fb_data["location"],
         "role": fb_data["job_title"],
-        "duration": f"{fb_data['start_date']} - Present",
+        "duration": f"{fb_data['start_date']} to Present",
         "responsibilities": responsibilities
     }
     
@@ -182,7 +182,6 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
         
         responsibilities = st.text_area(
             "Responsibilities *",
-            value=default_resp,
             height=200,
             placeholder="• Lead validation efforts for GxP systems\n• Develop and maintain validation documentation\n• Coordinate with cross-functional teams",
             key=f"responsibilities_{cv_index}"
