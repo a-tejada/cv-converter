@@ -505,15 +505,15 @@ def main():
         
         # Individual CV downloads
         for idx, conv in enumerate(st.session_state.converted_cvs):
-            with st.expander(f"📄 {conv['name']}", expanded=True):
-                data = conv['data']
-                
-                st.markdown(f"**Current Position:** {data.get('position', 'N/A')}")
-                st.markdown(f"**Total Experience:** {data.get('total_experience_years', 'N/A')} years")
-                
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.markdown(f"**{conv['name']}**")
+            
+            with col2:
                 fname = safe_filename(f"{conv['name']}_Formatted.docx")
                 st.download_button(
-                    f"⬇️ Download {fname}",
+                    "⬇️ Download",
                     conv['buffer'].getvalue(),
                     file_name=fname,
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
