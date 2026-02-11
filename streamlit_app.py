@@ -140,9 +140,8 @@ def check_session_timeout():
 def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
     """Show form to collect Formation Bio experience details."""
     
-    st.warning(f"⚠️ **{cv_name}**: No Formation Bio experience found in resume.")
     st.markdown("### Add Formation Bio Experience")
-    st.markdown("Please provide the candidate's Formation Bio role details:")
+    st.markdown(f"**{cv_name}** - Please provide your Formation Bio role details:")
     
     form_key = f"fb_form_{cv_index}"
     
@@ -221,9 +220,8 @@ def show_formation_bio_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
 def show_education_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
     """Show form to collect education details."""
     
-    st.warning(f"⚠️ **{cv_name}**: No education found in resume.")
     st.markdown("### Add Education")
-    st.markdown("Please provide the candidate's education details:")
+    st.markdown(f"**{cv_name}** - Please provide your education details:")
     
     form_key = f"edu_form_{cv_index}"
     
@@ -281,7 +279,7 @@ def main():
     col1, col2 = st.columns([5, 1])
     with col1:
         st.title("📄 Formation Bio CV Formatter")
-        st.markdown("### Convert candidate CVs to Formation Bio's standard template")
+        st.markdown("### Format your CV to Formation Bio's template for ComplianceWire")
     with col2:
         if st.button("🚪 Logout", use_container_width=True):
             for key in list(st.session_state.keys()):
@@ -296,13 +294,13 @@ def main():
         st.markdown("""
         **Step-by-step guide:**
         
-        1. **Upload** one or more candidate CV files (PDF, DOCX, or TXT)
-        2. **Review** extracted candidate names and correct if needed
-        3. **Add Formation Bio role** if the candidate doesn't have it on their CV
-        4. **Add education** if missing from the CV
-        5. **Download** the formatted CVs in Formation Bio template
+        1. **Upload** your CV file (PDF, DOCX, or TXT)
+        2. **Review** your name and correct if needed
+        3. **Add Formation Bio role** if it's not on your CV yet
+        4. **Add education** if missing from your CV
+        5. **Download** your formatted CV and upload to ComplianceWire
         
-        **Important:** Always review the output before finalizing. The tool uses AI and may make errors.
+        **Important:** Always review the output before uploading to ComplianceWire. The tool uses AI and may make errors.
         """)
     
     st.markdown("")
@@ -340,18 +338,18 @@ def main():
         st.stop()
     
     # File upload - only CVs
-    st.markdown("### 📤 Step 1: Upload Candidate CVs")
+    st.markdown("### 📤 Step 1: Upload Your CV")
     cvs = st.file_uploader(
-        "Select one or more CV files",
+        "Select your CV file (or multiple if processing for your team)",
         type=["pdf", "docx", "txt"],
         accept_multiple_files=True,
-        help="Upload PDF, DOCX, or TXT files. You can select multiple files at once."
+        help="Upload PDF, DOCX, or TXT files."
     )
     
     if cvs:
         st.success(f"✅ {len(cvs)} file(s) uploaded: {', '.join([cv.name for cv in cvs])}")
     else:
-        st.info("👆 Upload CV files to begin")
+        st.info("👆 Upload your CV file to begin")
 
     # Process button
     st.markdown("")
@@ -423,32 +421,28 @@ def main():
     if st.session_state.processing_stage == 'check_requirements':
         
         st.markdown("---")
-        st.markdown("### ✏️ Step 2: Review Candidate Names")
-        st.markdown("Verify the AI extracted the correct names. Edit any that are wrong:")
+        st.markdown("### ✏️ Step 2: Review Names")
+        st.markdown("Verify the AI extracted the correct name. Edit if needed:")
         
         st.markdown("")
         
         name_changes = {}
         for idx, cv_data in enumerate(st.session_state.extracted_data):
             with st.container():
-                st.markdown(f"**Candidate #{idx + 1}**")
+                st.markdown(f"**Employee #{idx + 1}**")
                 col1, col2 = st.columns([3, 2])
                 with col1:
                     corrected_name = st.text_input(
                         "Full Name",
                         value=cv_data["name"],
                         key=f"name_correction_{idx}",
-                        label_visibility="collapsed"
+                        label_visibility="collapsed",
+                        help="Edit the full name if needed (First Last)"
                     )
                     if corrected_name != cv_data["name"]:
                         name_changes[idx] = corrected_name
                 with col2:
-                    st.text_input(
-                        "Original extraction",
-                        value=cv_data.get('data', {}).get('extracted_name', cv_data['name']),
-                        disabled=True,
-                        label_visibility="collapsed"
-                    )
+                    st.caption(f"AI extracted: {cv_data.get('data', {}).get('extracted_name', cv_data['name'])}")
                 st.markdown("")
         
         col1, col2 = st.columns(2)
@@ -470,8 +464,8 @@ def main():
         
         if st.session_state.pending_formation_bio:
             st.markdown("---")
-            st.markdown("### 🏢 Step 3: Add Formation Bio Experience")
-            st.markdown("The following candidates are missing Formation Bio on their CV:")
+            st.markdown("### 🏢 Step 3: Add Your Formation Bio Role")
+            st.markdown("Add your Formation Bio experience:")
             st.markdown("")
             
             for idx in st.session_state.pending_formation_bio[:]:
@@ -492,8 +486,8 @@ def main():
         
         if not st.session_state.pending_formation_bio and st.session_state.pending_education:
             st.markdown("---")
-            st.markdown("### 🎓 Step 4: Add Education")
-            st.markdown("The following candidates are missing education information:")
+            st.markdown("### 🎓 Step 4: Add Your Education")
+            st.markdown("Add your education information:")
             st.markdown("")
             
             for idx in st.session_state.pending_education[:]:
