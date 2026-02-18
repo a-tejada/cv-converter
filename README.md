@@ -17,7 +17,7 @@ AI-powered CV template converter for Formation Bio.
 4. Activate: `source venv/bin/activate`
 5. Install dependencies: `pip install -r requirements.txt`
 6. Configure secrets in `.streamlit/secrets.toml`
-7. Run: `streamlit run cv_converter.py`
+7. Run: 'streamlit run streamlit_app.py'
 
 ## Configuration
 
@@ -26,6 +26,9 @@ Create `.streamlit/secrets.toml`:
 OPENAI_API_KEY = "sk-proj-..."
 company_domain = "@formationbio.com"
 app_password = "your-team-password"
+auth_cookie_name = "cv_converter_auth"
+auth_cookie_key = ""
+auth_cookie_expiry_days = 7
 ```
 
 ⚠️ **Never commit this file - it's in .gitignore**
