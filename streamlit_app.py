@@ -1,11 +1,11 @@
 # ────────────────────────────────────────────────────────────────
 #  Libraries
 # ────────────────────────────────────────────────────────────────
-import os, re, json, time
+import os, re
 from io import BytesIO
 from typing import Dict, Any, List
-from datetime import datetime
 import streamlit as st
+import streamlit_authenticator as stauth
 import PyPDF2
 from docx import Document
 from docx.shared import Pt, RGBColor
@@ -81,58 +81,117 @@ def add_education(data: Dict[str, Any], edu_data: Dict[str, Any]) -> Dict[str, A
 # ────────────────────────────────────────────────────────────────
 #  Authentication Functions
 # ────────────────────────────────────────────────────────────────
-def check_company_email():
-    """Verify user has company email domain and password."""
-    try:
-        COMPANY_DOMAIN = st.secrets["company_domain"]
-        APP_PASSWORD = st.secrets["app_password"]
-    except:
-        st.error("⚠️ Company domain or password not configured. Contact administrator.")
-        st.stop()
-    
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    
-    if not st.session_state.authenticated:
-        st.markdown("## 🔐 CV Converter Login Page")
-        st.markdown("Please authenticate with your company email and password to access the CV converter.")
-        
-        col1, col2, col3 = st.columns([1, 2, 1])
-        
-        with col2:
-            email = st.text_input("Enter your company email address:", 
-                                placeholder=f"yourname{COMPANY_DOMAIN}")
-            password = st.text_input("Enter password:", type="password")
-            
-            if st.button("Access CV Converter", type="primary", use_container_width=True):
-                if email.lower().endswith(COMPANY_DOMAIN.lower()) and password == APP_PASSWORD:
-                    st.session_state.authenticated = True
-                    st.session_state.user_email = email
-                    st.session_state.login_time = datetime.now()
-                    
-                    st.success(f"✅ Welcome {email}!")
-                    st.rerun()
-                else:
-                    if not email.lower().endswith(COMPANY_DOMAIN.lower()):
-                        st.error(f"❌ Access restricted to {COMPANY_DOMAIN} emails only")
-                    else:
-                        st.error("❌ Invalid password")
-                    
-        st.markdown("---")
-        st.caption("This tool is for authorized personnel only. Unauthorized access is prohibited.")
-        
-    return st.session_state.authenticated
+def _hash_password(password: str) -> str:
+    if hasattr(stauth.Hasher, "hash"):
+        return stauth.Hasher.hash(password)
+    return stauth.Hasher([password]).generate()[0]
 
-def check_session_timeout():
-    """Check if session has timed out (30 minutes)."""
-    if "login_time" in st.session_state:
-        elapsed = datetime.now() - st.session_state.login_time
-        if elapsed.total_seconds() > 1800:
-            st.warning("⏱️ Session expired. Please login again.")
-            for key in ["authenticated", "user_email", "login_time"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.rerun()
+def _logout_with_compat(authenticator, label: str, key: str):
+    try:
+        return authenticator.logout(label, "main", key=key)
+    except TypeError:
+        return authenticator.logout(location="main", key=key)
+
+def _normalize_company_domain(raw_domain: str) -> str:
+    domain = raw_domain.strip().lower()
+    return domain if domain.startswith("@") else f"@{domain}"
+
+def _is_company_email(email: str, company_domain: str) -> bool:
+    return email.lower().strip().endswith(company_domain)
+
+def _seed_user_credentials(credentials: Dict[str, Any], email: str, hashed_password: str) -> None:
+    user_email = email.lower().strip()
+    credentials["usernames"][user_email] = {
+        "name": user_email.split("@")[0],
+        "email": user_email,
+        "password": hashed_password,
+    }
+
+def _force_logout(authenticator) -> None:
+    """Immediately clear auth session and cookie."""
+    try:
+        authenticator.authentication_controller.logout()
+    except Exception:
+        pass
+    try:
+        authenticator.cookie_controller.delete_cookie()
+    except Exception:
+        pass
+    for key in ["authentication_status", "username", "name", "email", "roles", "user_email", "user_name"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
+def check_company_email():
+    """Authenticate any company-domain email with shared password + cookie persistence."""
+    try:
+        company_domain = _normalize_company_domain(st.secrets["company_domain"])
+        app_password = st.secrets["app_password"]
+        auth_cookie_key = st.secrets["auth_cookie_key"]
+        auth_cookie_name = st.secrets.get("auth_cookie_name", "cv_converter_auth")
+        auth_cookie_expiry_days = float(st.secrets.get("auth_cookie_expiry_days", 7))
+    except Exception:
+        st.error("⚠️ Authentication settings not configured. Contact administrator.")
+        st.stop()
+
+    credentials = {"usernames": {}}
+    hashed_password = _hash_password(app_password)
+
+    authenticator = stauth.Authenticate(
+        credentials,
+        auth_cookie_name,
+        auth_cookie_key,
+        auth_cookie_expiry_days,
+    )
+
+    token = authenticator.cookie_controller.get_cookie()
+    token_username = (token or {}).get("username", "").lower().strip() if isinstance(token, dict) else ""
+    if token_username and _is_company_email(token_username, company_domain):
+        _seed_user_credentials(credentials, token_username, hashed_password)
+        try:
+            authenticator.authentication_controller.login(token=token)
+        except Exception:
+            _force_logout(authenticator)
+    elif token_username:
+        _force_logout(authenticator)
+
+    if st.session_state.get("authentication_status"):
+        user_email = (st.session_state.get("username") or "").lower().strip()
+        if _is_company_email(user_email, company_domain):
+            st.session_state.user_email = user_email
+            st.session_state.user_name = st.session_state.get("name") or user_email.split("@")[0]
+            return authenticator
+        st.error(f"❌ Access restricted to {company_domain} emails only")
+        _force_logout(authenticator)
+        return None
+
+    st.markdown("## 🔐 CV Converter Login Page")
+    st.markdown("Please authenticate with your company email and password to access the CV converter.")
+    with st.form("domain_auth_form"):
+        email = st.text_input("Company Email", placeholder=f"you{company_domain}")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Access CV Converter", type="primary", use_container_width=True)
+
+    if submitted:
+        clean_email = email.lower().strip()
+        if not _is_company_email(clean_email, company_domain):
+            st.error(f"❌ Access restricted to {company_domain} emails only")
+        elif password != app_password:
+            st.error("❌ Invalid email or password")
+        else:
+            _seed_user_credentials(credentials, clean_email, hashed_password)
+            if authenticator.authentication_controller.login(clean_email, password):
+                authenticator.cookie_controller.set_cookie()
+                st.session_state.user_email = clean_email
+                st.session_state.user_name = clean_email.split("@")[0]
+                st.rerun()
+            else:
+                st.error("❌ Invalid email or password")
+    else:
+        st.info("Please enter your credentials.")
+
+    st.markdown("---")
+    st.caption("This tool is for authorized personnel only. Unauthorized access is prohibited.")
+    return None
 
 # ────────────────────────────────────────────────────────────────
 #  Formation Bio Experience Input Form
@@ -270,10 +329,9 @@ def show_education_form(cv_name: str, cv_index: int) -> Dict[str, Any]:
 #  Main Application Function
 # ────────────────────────────────────────────────────────────────
 def main():
-    if not check_company_email():
+    authenticator = check_company_email()
+    if not authenticator:
         return
-    
-    check_session_timeout()
     
     # Display header
     col1, col2 = st.columns([5, 1])
@@ -281,10 +339,7 @@ def main():
         st.title("📄 Formation Bio CV Formatter")
         st.markdown("### Format your CV to Formation Bio's template for ComplianceWire")
     with col2:
-        if st.button("🚪 Logout", use_container_width=True):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.rerun()
+        _logout_with_compat(authenticator, "🚪 Logout", "logout_button")
         st.caption(f"👤 {st.session_state.user_email.split('@')[0]}")
     
     st.markdown("---")
